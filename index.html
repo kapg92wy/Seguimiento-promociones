@@ -265,35 +265,6 @@ footer{text-align:center;padding:2rem 0 1rem;color:var(--text-3);font-size:0.75r
   </div>
 </div>
 
-<!-- Panel de diagnóstico -->
-<div class="detail-card" id="diagPanel" style="margin-bottom:1.5rem;display:none">
-  <div class="detail-card-header">
-    <div>
-      <div class="detail-card-title"><span>🔍</span> Diagnóstico de fechas</div>
-      <div class="detail-card-subtitle" style="margin-top:0.35rem">Verifica si las fechas se están leyendo correctamente</div>
-    </div>
-    <button class="btn" onclick="document.getElementById('diagPanel').style.display='none'">Cerrar</button>
-  </div>
-  <div id="diagBody"></div>
-</div>
-
-<!-- Simulador de fecha -->
-<div class="detail-card" style="margin-bottom:1.5rem;background:linear-gradient(135deg,rgba(124,58,237,0.05) 0%,rgba(0,212,255,0.05) 100%)">
-  <div class="detail-card-header">
-    <div>
-      <div class="detail-card-title"><span>🧪</span> Simular otra fecha</div>
-      <div class="detail-card-subtitle" style="margin-top:0.35rem">Para ver qué se marcaría como vencido en una fecha futura</div>
-    </div>
-    <div style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap">
-      <input type="date" id="fechaSim" style="background:var(--card);color:var(--text);border:1px solid var(--border);padding:0.55rem 0.85rem;border-radius:6px;font-family:inherit;font-size:0.85rem">
-      <button class="btn btn-primary" onclick="aplicarFechaSim()">Aplicar</button>
-      <button class="btn" onclick="resetFechaSim()">Hoy real</button>
-      <button class="btn" onclick="mostrarDiagnostico()">🔍 Diagnóstico</button>
-    </div>
-  </div>
-  <div id="fechaActiva" style="color:var(--text-2);font-size:0.85rem;font-family:'JetBrains Mono',monospace"></div>
-</div>
-
 <!-- KPIs globales -->
 <div class="kpis" id="kpis"></div>
 
@@ -375,29 +346,14 @@ const ETAPAS = [
 ];
 
 function parseDate(v){
-  if(!v && v !== 0) return null;
-  if(v instanceof Date) return isNaN(v) ? null : v;
-  if(typeof v === 'number'){
-    // Serial de Excel (días desde 1900-01-01)
-    const d = new Date((v - 25569) * 86400 * 1000);
+  if(!v) return null;
+  if(v instanceof Date) return v;
+  if(typeof v === 'string'){
+    const d = new Date(v);
     return isNaN(d) ? null : d;
   }
-  if(typeof v === 'string'){
-    const s = v.trim();
-    if(!s) return null;
-    // Formato ISO: 2026-04-17 o 2026-04-17T00:00:00
-    let m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
-    if(m) return new Date(+m[1], +m[2]-1, +m[3]);
-    // Formato mexicano dd/mm/yyyy o dd-mm-yyyy
-    m = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/);
-    if(m){
-      let year = +m[3];
-      if(year < 100) year += 2000;
-      return new Date(year, +m[2]-1, +m[1]);
-    }
-    // Formato mm/dd/yyyy (por si acaso)
-    const d = new Date(s);
-    return isNaN(d) ? null : d;
+  if(typeof v === 'number'){
+    return new Date((v - 25569) * 86400 * 1000);
   }
   return null;
 }
@@ -409,33 +365,10 @@ function fmtDate(d){
   return pd.toLocaleDateString('es-MX',{day:'2-digit',month:'short',year:'numeric'});
 }
 
-let fechaHoy = null; // null = usar fecha real
-
-function getHoy(){
-  if(fechaHoy) return new Date(fechaHoy);
-  const h = new Date();
-  h.setHours(0,0,0,0);
-  return h;
-}
-
-function aplicarFechaSim(){
-  const input = document.getElementById('fechaSim').value;
-  if(!input){ alert('Selecciona una fecha'); return; }
-  const [y,m,d] = input.split('-').map(Number);
-  fechaHoy = new Date(y, m-1, d);
-  render();
-}
-
-function resetFechaSim(){
-  fechaHoy = null;
-  document.getElementById('fechaSim').value = '';
-  render();
-}
-
 function daysUntil(d){
   const pd = parseDate(d);
   if(!pd) return null;
-  const hoy = getHoy();
+  const hoy = new Date();
   hoy.setHours(0,0,0,0);
   pd.setHours(0,0,0,0);
   return Math.round((pd - hoy)/86400000);
@@ -459,87 +392,12 @@ function clasificarEtapa(row, etapa){
   return 'pendiente';
 }
 
-function mostrarDiagnostico(){
-  const panel = document.getElementById('diagPanel');
-  const body = document.getElementById('diagBody');
-  panel.style.display = 'block';
-
-  // Muestra por cada etapa: fecha mínima, máxima, tipo de dato, ejemplo de 3 filas
-  const info = ETAPAS.map(e => {
-    const fechas = rawData.rows.map(r => r[e.fecha]).filter(v => v !== null && v !== undefined && v !== '');
-    const parsed = fechas.map(parseDate).filter(d => d !== null);
-    if(parsed.length === 0) return {etapa:e.nom, vacio:true};
-    const fMin = new Date(Math.min(...parsed));
-    const fMax = new Date(Math.max(...parsed));
-    const hoy = getHoy();
-    const yaPaso = fMin < hoy;
-    const sample = fechas.slice(0, 3);
-    const sampleTypes = sample.map(v => ({
-      valor: String(v),
-      tipo: v instanceof Date ? 'Date' : typeof v,
-      parsed: parseDate(v) ? parseDate(v).toISOString().split('T')[0] : 'NO PARSEABLE'
-    }));
-    // Contar vencidas en esta etapa
-    let vencidas = 0, cumplidas = 0;
-    rawData.rows.forEach(r => {
-      const cat = clasificarEtapa(r, e);
-      if(cat === 'vencida') vencidas++;
-      if(cat === 'cumplida') cumplidas++;
-    });
-    return {etapa:e.nom, fMin, fMax, yaPaso, sampleTypes, vencidas, cumplidas, total:fechas.length};
-  });
-
-  const hoyStr = getHoy().toLocaleDateString('es-MX',{day:'2-digit',month:'long',year:'numeric'});
-  body.innerHTML = `
-    <div style="background:var(--bg-2);padding:1rem;border-radius:8px;margin-bottom:1rem;font-family:'JetBrains Mono',monospace;font-size:0.85rem">
-      <strong>Fecha de referencia (HOY):</strong> ${hoyStr} ${fechaHoy ? '<span style="color:var(--warning)">(simulada)</span>' : '<span style="color:var(--success)">(real)</span>'}
-    </div>
-    <table class="detail" style="width:100%">
-      <thead>
-        <tr>
-          <th>Etapa</th>
-          <th>Fechas leídas</th>
-          <th>Fecha más antigua</th>
-          <th>Fecha más reciente</th>
-          <th>¿Ya pasó?</th>
-          <th>✅ Cumplidas</th>
-          <th>🔴 Vencidas</th>
-          <th>Ejemplo de 3 valores</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${info.map(i => i.vacio ? `
-          <tr><td>${i.etapa}</td><td colspan="7" style="color:var(--text-3)">Sin fechas</td></tr>
-        ` : `
-          <tr>
-            <td style="font-weight:600">${i.etapa}</td>
-            <td class="num" style="text-align:center">${i.total}</td>
-            <td>${i.fMin.toLocaleDateString('es-MX')}</td>
-            <td>${i.fMax.toLocaleDateString('es-MX')}</td>
-            <td>${i.yaPaso ? '<span class="pill danger">Sí, ya pasó</span>' : '<span class="pill neutral">No</span>'}</td>
-            <td class="num"><span class="pill ${i.cumplidas>0?'success':'zero'}">${i.cumplidas}</span></td>
-            <td class="num"><span class="pill ${i.vencidas>0?'danger':'zero'}">${i.vencidas}</span></td>
-            <td style="font-size:0.75rem;color:var(--text-3)">
-              ${i.sampleTypes.map(s =>
-                `<div><span style="color:var(--accent)">${s.tipo}</span>: "${s.valor}" → <span style="color:${s.parsed==='NO PARSEABLE'?'var(--danger)':'var(--success)'}">${s.parsed}</span></div>`
-              ).join('')}
-            </td>
-          </tr>
-        `).join('')}
-      </tbody>
-    </table>
-  `;
-}
-
 function render(){
   renderKPIs();
   renderPromociones();
   renderVencidas();
   renderProximas();
   document.getElementById('totalRecords').textContent = rawData.rows.length;
-  const hoyStr = getHoy().toLocaleDateString('es-MX',{day:'2-digit', month:'long', year:'numeric'});
-  const modo = fechaHoy ? `<span style="color:var(--warning)">⚠ Fecha simulada: ${hoyStr}</span>` : `Fecha real: ${hoyStr}`;
-  document.getElementById('fechaActiva').innerHTML = modo;
   document.getElementById('lastUpdate').textContent =
     `// Actualizado: ${new Date().toLocaleString('es-MX')} · ${rawData.rows.length} registros totales`;
 }
@@ -847,63 +705,18 @@ document.getElementById('fileInput').addEventListener('change', (e) => {
   const reader = new FileReader();
   reader.onload = (ev) => {
     try {
-      const wb = XLSX.read(ev.target.result, {type:'array', cellDates:true, cellNF:false, cellText:false});
+      const wb = XLSX.read(ev.target.result, {type:'array', cellDates:true});
       const sheetName = wb.SheetNames.find(n => n.toUpperCase().includes('CONCENTRADO')) || wb.SheetNames[0];
       const sheet = wb.Sheets[sheetName];
-      const usa1904 = !!(wb.Workbook && wb.Workbook.WBProps && wb.Workbook.WBProps.date1904);
-
-      const json = XLSX.utils.sheet_to_json(sheet, {header:1, raw:true});
+      const json = XLSX.utils.sheet_to_json(sheet, {header:1, raw:false, dateNF:'yyyy-mm-dd'});
       if(json.length < 2){ alert('El archivo no tiene datos suficientes'); return; }
       const headers = json[0];
-      let rows = json.slice(1).filter(r => r[0] !== undefined && r[0] !== null && r[0] !== '');
-
-      // Buscar la fecha más antigua y más reciente en columnas de fecha
-      const cols_fecha = [HDR.fCuponeado, HDR.fBranding, HDR.fEmbarque, HDR.fSitio];
-      const fechasDetectadas = [];
-      rows.forEach(r => {
-        cols_fecha.forEach(c => {
-          if(r[c] instanceof Date && !isNaN(r[c])){
-            fechasDetectadas.push(r[c]);
-          }
-        });
-      });
-
-      if(fechasDetectadas.length > 0){
-        const anos = fechasDetectadas.map(d => d.getFullYear());
-        const anoMin = Math.min(...anos);
-        const anoMax = Math.max(...anos);
-        const anoActual = new Date().getFullYear();
-
-        // Si las fechas están claramente desfasadas (todas anteriores a 2010 cuando deberían ser actuales)
-        // calcular el desfase en años respecto al año actual
-        if(anoMax < anoActual - 5){
-          const desfaseAnos = anoActual - anoMax;
-          // Aplicar corrección: sumar exactamente esa cantidad de años a cada fecha
-          rows = rows.map(r => {
-            const nueva = [...r];
-            cols_fecha.forEach(c => {
-              if(nueva[c] instanceof Date && !isNaN(nueva[c])){
-                const f = new Date(nueva[c]);
-                f.setFullYear(f.getFullYear() + desfaseAnos);
-                nueva[c] = f;
-              }
-            });
-            return nueva;
-          });
-          rawData = {headers, rows};
-          render();
-          alert(`✓ Cargados ${rows.length} registros de "${sheetName}"\\n\\n⚠ Desfase detectado: las fechas mostraban año ${anoMin}-${anoMax}. Se ajustaron sumando ${desfaseAnos} años para que cuadren con el año actual (${anoActual}).\\n\\nSi esto no es correcto, revisa el formato de las fechas en tu Excel (deben estar como tipo "Fecha", no como texto).`);
-          return;
-        }
-      }
-
+      const rows = json.slice(1).filter(r => r[0] !== undefined && r[0] !== null && r[0] !== '');
       rawData = {headers, rows};
       render();
-      const aviso = usa1904 ? '\\n\\n(Sistema de fechas 1904 detectado)' : '';
-      alert(`✓ Cargados ${rows.length} registros de "${sheetName}"${aviso}`);
+      alert(`✓ Cargados ${rows.length} registros de "${sheetName}"`);
     } catch(err){
       alert('Error al leer el archivo: ' + err.message);
-      console.error(err);
     }
   };
   reader.readAsArrayBuffer(file);
