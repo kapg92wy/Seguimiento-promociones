@@ -662,8 +662,10 @@ async function uploadToSupabase(rows) {
 function parseDate(v) {
   if (!v) return null;
   if (v instanceof Date) return v;
+  // Si viene de Supabase como "2026-04-23" o ISO
   if (typeof v === 'string') {
-    const d = new Date(v + (v.length === 10 ? 'T12:00:00' : ''));
+    // Forzamos el mediodía para evitar desfases por zona horaria
+    const d = new Date(v.includes('T') ? v : v + 'T12:00:00');
     return isNaN(d) ? null : d;
   }
   if (typeof v === 'number') return new Date((v - 25569) * 86400 * 1000);
@@ -693,11 +695,13 @@ function esSi(v) {
 
 function clasificarEtapa(row, etapa) {
   const estatus = row[etapa.estatus];
-  const fecha = row[etapa.fecha];
+  const fechaVal = row[etapa.fecha];
+  
   if (esSi(estatus)) return 'cumplida';
-  const dias = daysUntil(fecha);
+  
+  const dias = daysUntil(fechaVal);
   if (dias === null) return 'sin-fecha';
-  if (dias < 0) return 'vencida';
+  if (dias < 0) return 'vencida'; // Si es menor a 0, está vencida
   if (dias <= 7) return 'proxima';
   return 'pendiente';
 }
