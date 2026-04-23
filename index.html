@@ -574,28 +574,30 @@ let ultimaCarga = null;
 // ══════════════════════════════════════════════
 //  CARGAR DATOS DESDE SUPABASE
 // ══════════════════════════════════════════════
-async function loadFromSupabase() {
-  setSyncBadge('syncing', 'Cargando...');
-  try {
-    // Paginación: Supabase devuelve máx 1000 por defecto, usamos limit alto
-    const data = await sbSelect('promociones', 'select=*&order=promocion,cine&limit=10000');
-    rawRows = data.map(objectToRow);
+async function objectToRow(obj) {
+  const hoy = new Date();
+  hoy.setHours(0, 0, 0, 0); // Solo nos importa el día, no la hora exacta
 
-    // Info última carga
-    try {
-      const info = await sbSelect('ultima_carga', 'select=*&limit=1');
-      if (info && info.length > 0) ultimaCarga = info[0];
-    } catch(e) { /* no crítico */ }
+  // Convertimos la fecha que viene de Supabase (formato YYYY-MM-DD)
+  // Nota: Si el campo en Supabase se llama diferente, cámbialo aquí
+  const fechaVencimiento = new Date(obj.vigencia + 'T00:00:00');
 
-    setSyncBadge('', '✓ Sincronizado');
-    return true;
-  } catch (err) {
-    setSyncBadge('error', 'Error conexión');
-    showToast('Error al cargar datos: ' + err.message, 'error');
-    return false;
+  let estadoFinal = obj.estado;
+
+  // Lógica de validación:
+  if (fechaVencimiento && fechaVencimiento < hoy) {
+    estadoFinal = 'Vencida'; // Forzamos el estado si la fecha ya pasó
   }
-}
 
+  // Retornamos el array que espera tu tabla/UI
+  return [
+    obj.promocion,
+    obj.cine,
+    obj.vigencia,
+    estadoFinal, // Aquí usamos el estado ya procesado
+    // ... los demás campos que tengas
+  ];
+}
 // ══════════════════════════════════════════════
 //  SUBIR EXCEL → SUPABASE
 // ══════════════════════════════════════════════
